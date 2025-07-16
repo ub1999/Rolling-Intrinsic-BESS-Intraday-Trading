@@ -74,7 +74,7 @@ def get_average_prices(
     df_bucket = df_bucket[filter]
     #continuehere
     df_bucket.groupy("deliverystart")
-    result = VWAP from bucket
+    #result = VWAP from bucket
     df = pd.DataFrame(result, columns=["product", "price"])
 
     # set index to product
