@@ -40,6 +40,13 @@ def get_average_prices(
     end_of_day = start_of_day
 
     end_of_day = end_of_day.replace(hour=23, minute=45)
+    # This is the Postgres query that checks for transactions:
+    #   within a certain timestep (Rolling Window),
+    #   Where products are:  
+    #       either buy or sell transactions,
+    #       With delivery within the chosen day
+    #       The results are grouped by product, and only groups with over the threshold of min trades are kept fetched
+    # It returns volume wighted average price
 
     cursor.execute(f"""
         SELECT
@@ -559,7 +566,8 @@ def simulate_period(
     net_trades = pd.DataFrame(
         columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
     )
-
+    # intraday operations for today, in simulation it is set to the last day of the simulation such that all days are processed!
+    # in reality you would call this while loop multiple times!
     while current_day < end_day:
         current_day = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
