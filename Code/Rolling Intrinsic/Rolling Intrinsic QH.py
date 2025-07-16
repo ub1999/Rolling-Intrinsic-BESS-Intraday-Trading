@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
-PASSWORD = "123"
+"""PASSWORD = "123"
 
 
 password_for_url = f":{PASSWORD}"
@@ -26,11 +26,16 @@ conn = psycopg2.connect(CONNECTION)
 conn_alchemy = create_engine(CONNECTION_ALCHEMY)
 cursor = conn.cursor()
 cursor.execute("ROLLBACK")
+"""
 
+def load_fake_data(path:str)-> pd.DataFrame:
+    df_fake_data = pd.read_parquet(path)
+    return df_fake_data
 
 def get_average_prices(
-    side, execution_time_start, execution_time_end, end_date, min_trades=10
-):
+    df, side, execution_time_start, execution_time_end, end_date, min_trades=10
+    ):
+    
     # set start_of_day to end_date minus 1 day
     start_of_day = pd.to_datetime(end_date) - pd.Timedelta(hours=2)
 
@@ -48,22 +53,28 @@ def get_average_prices(
     #       The results are grouped by product, and only groups with over the threshold of min trades are kept fetched
     # It returns volume wighted average price
 
-    cursor.execute(f"""
-        SELECT
-        deliverystart,
-        SUM(price*volume)/SUM(volume) AS weighted_avg_price
-        FROM
-        transactions_intraday_de
-        WHERE
-        (executiontime BETWEEN '{execution_time_start}' AND '{execution_time_end}')
-        AND (product ='XBID_Quarter_Hour_Power' or product = 'Intraday_Quarter_Hour_Power') AND side='{side}' AND deliverystart < '{end_date}' AND deliverystart >= '{start_of_day}'
-        GROUP BY
-        deliverystart
-        HAVING
-        COUNT(*) >= {min_trades};
-        """)
-    result = cursor.fetchall()
-
+    # cursor.execute(f"""
+    #     SELECT
+    #     deliverystart,
+    #     SUM(price*volume)/SUM(volume) AS weighted_avg_price
+    #     FROM
+    #     transactions_intraday_de
+    #     WHERE
+    #     (executiontime BETWEEN '{execution_time_start}' AND '{execution_time_end}')
+    #     AND (product ='XBID_Quarter_Hour_Power' or product = 'Intraday_Quarter_Hour_Power') AND side='{side}' AND deliverystart < '{end_date}' AND deliverystart >= '{start_of_day}'
+    #     GROUP BY
+    #     deliverystart
+    #     HAVING
+    #     COUNT(*) >= {min_trades};
+    #     """)
+    # result = cursor.fetchall()
+    df_bucket = df.loc["execution_time_start":"execution_time_end",:].copy()
+    
+    filter = df_bucket.side==side & df_bucket.deliverystart < end_date & df_bucket.deliverystart>=start_of_day
+    df_bucket = df_bucket[filter]
+    #continuehere
+    df_bucket.groupy("deliverystart")
+    result = VWAP from bucket
     df = pd.DataFrame(result, columns=["product", "price"])
 
     # set index to product
