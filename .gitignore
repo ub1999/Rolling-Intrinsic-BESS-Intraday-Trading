@@ -24,6 +24,7 @@ https://github.com/github/gitignore/blob/master/R.gitignore
 
 # Session Data files
 .RData
+fake_data/
 
 # Example code in package build process
 *-Ex.R
