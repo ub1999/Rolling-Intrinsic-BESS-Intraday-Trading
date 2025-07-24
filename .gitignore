@@ -11,7 +11,8 @@ tests/.cache/v/cache/lastfailed
 .DS_Store
 /Code/Rolling Intrinsic/ma_final_results_h_sens/
 /Code/Rolling Intrinsic/ma_final_results_qh_sens/
-
+/real_data/
+CID_Data.lnk
 
 ##
 ## R Section - See 

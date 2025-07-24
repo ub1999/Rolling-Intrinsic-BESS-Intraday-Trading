@@ -12,11 +12,13 @@ from pulp import (
     # GUROBI,
 )
 from sqlalchemy import create_engine
+import sys
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
+logger.add(sys.stderr, level="INFO")
 
-
-"""PASSWORD = "123"
+"""
+PASSWORD = "123"
 
 
 password_for_url = f":{PASSWORD}"
@@ -28,22 +30,52 @@ cursor = conn.cursor()
 cursor.execute("ROLLBACK")
 """
 
-def load_fake_data(path:str)-> pd.DataFrame:
-    df_fake_data = pd.read_parquet(path)
-    return df_fake_data
+def load_fake_data(path = "")-> pd.DataFrame:
+    print(os.getcwd())
+    if path == "":
+        path = os.path.join("fake_data","transaction_data.parquet")
+    df = pd.read_parquet(path)
+    df.set_index("executiontime",inplace=True)
+    return df
+
+def load_real_data(path = "")->pd.DataFrame:
+    usecols = [#"TradeId",
+           #"RemoteTradeId",
+           "Side",
+           "Product",
+           "DeliveryStart",
+           "DeliveryEnd",
+           "TradePhase",
+           "Price",
+           "Volume",
+           #"VolumeUnit",
+           "ExecutionTime"
+            ]
+    df = pd.read_csv(path,skiprows=1,
+                        parse_dates=["DeliveryStart",    
+                                        "DeliveryEnd",      
+                                        "ExecutionTime"],
+                        date_format = "ISO8601",
+                        usecols = usecols
+                                        )
+    df.columns = df.columns.map(lambda x: x.lower())
+    df[df.select_dtypes(include="datetime64[ns, UTC]").columns] = df.select_dtypes(include="datetime64[ns, UTC]").apply(lambda x : x.dt.tz_convert("Europe/Berlin"))
+    df = df.set_index("executiontime")
+    filter_QH = (df["product"] == 'XBID_Quarter_Hour_Power') & (df["tradephase"] == "CONT")
+    df = df.loc[filter_QH]
+    df
+    return df
 
 def get_average_prices(
-    df, side, execution_time_start, execution_time_end, end_date, min_trades=10
+    df,side, execution_time_start, execution_time_end, end_date, min_trades=10
     ):
-    
     # set start_of_day to end_date minus 1 day
-    start_of_day = pd.to_datetime(end_date) - pd.Timedelta(hours=2)
+    start_of_day = (pd.to_datetime(end_date) - pd.Timedelta(hours=2))
+
 
     # set hour and minute to 0 (europe/berlin time)
     start_of_day = start_of_day.replace(hour=0, minute=0)
-
     end_of_day = start_of_day
-
     end_of_day = end_of_day.replace(hour=23, minute=45)
     # This is the Postgres query that checks for transactions:
     #   within a certain timestep (Rolling Window),
@@ -52,39 +84,33 @@ def get_average_prices(
     #       With delivery within the chosen day
     #       The results are grouped by product, and only groups with over the threshold of min trades are kept fetched
     # It returns volume wighted average price
-
-    # cursor.execute(f"""
-    #     SELECT
-    #     deliverystart,
-    #     SUM(price*volume)/SUM(volume) AS weighted_avg_price
-    #     FROM
-    #     transactions_intraday_de
-    #     WHERE
-    #     (executiontime BETWEEN '{execution_time_start}' AND '{execution_time_end}')
-    #     AND (product ='XBID_Quarter_Hour_Power' or product = 'Intraday_Quarter_Hour_Power') AND side='{side}' AND deliverystart < '{end_date}' AND deliverystart >= '{start_of_day}'
-    #     GROUP BY
-    #     deliverystart
-    #     HAVING
-    #     COUNT(*) >= {min_trades};
-    #     """)
-    # result = cursor.fetchall()
-    df_bucket = df.loc["execution_time_start":"execution_time_end",:].copy()
+    df_bucket = df.loc[execution_time_start:execution_time_end,:].copy()
     
-    filter = df_bucket.side==side & df_bucket.deliverystart < end_date & df_bucket.deliverystart>=start_of_day
+    filter = (df_bucket.side==side) & (df_bucket.deliverystart < end_date) & (df_bucket.deliverystart>=start_of_day)
     df_bucket = df_bucket[filter]
-    #continuehere
-    df_bucket.groupy("deliverystart")
+    #logger.debug("\n"+"."*50 + "This is the bucket data" + "."*50 + "\n" + df_bucket.to_string())
+    result = df_bucket.groupby("deliverystart",as_index=False).filter(lambda x: len(x)>=min_trades)
+    result = result.groupby("deliverystart",as_index=False)\
+          .apply(func = (lambda x: (x.price * x.volume).sum() / x.volume.sum()))
     #result = VWAP from bucket
-    df = pd.DataFrame(result, columns=["product", "price"])
-
+    #logger.debug("\n" + result.to_string())
+    if result.shape[0]>0:
+          df_vwap = pd.DataFrame(result.values, columns=["product", "price"])
+    else:
+         #logger.debug("Not enough trades above threshold for ANY Product")
+         return pd.DataFrame(np.array([[np.nan,np.nan],[np.nan,np.nan]]), columns=["product", "price"])
+    df_vwap = df_vwap.astype(
+       { "price" : "float64",
+       }
+    )
+   
     # set index to product
-    df.set_index("product", inplace=True)
-
+    df_vwap.set_index("product", inplace=True)
+    #print(df_vwap) 
     # set index to be all 15 minute intervals from start_of_day to end_of_day, filling missing values with NaN
-    df = df.reindex(pd.date_range(start_of_day, end_of_day, freq="15min"))
-
-    return df
-
+    df_vwap = df_vwap.reindex(pd.date_range(start_of_day, end_of_day, freq="15min"))
+    #logger.debug("\n"+"."*50 + "This is the VWAP" + "."*50 + "\n" + df_vwap.to_string())
+    return df_vwap
 
 def get_closest_prices(execution_time_start, end_date):
     # set start_of_day to end_date minus 1 day
@@ -489,6 +515,7 @@ def get_net_trades(trades, end_date):
     # return the net_trades dataframe
     return net_trades
 
+fake_path = os.path.normpath("C:/Users/UnmuBhar/Documents/Intraday Research/POCs/Rolling-Intrinsic-BESS-Intraday-Trading/fake_data")
 
 def simulate_period(
     start_day,
@@ -501,6 +528,7 @@ def simulate_period(
     roundtrip_eff,
     max_cycles,
     min_trades,
+    df = load_fake_data(path=fake_path)
 ):
     log_message = (
         "Running Rolling intrinsic QH with the following parameters:\n"
@@ -613,24 +641,27 @@ def simulate_period(
         print("Days left: ", days_left)
         print("Current cycles: ", current_cycles)
         print("Allowed cycles: ", allowed_cycles)
-
+        
         while execution_time_end < trading_end:
             # get average price for BUY orders
+            if execution_time_start == pd.Timestamp("23:30:00",tz="Europe/Berlin"):
+                pass
             vwap = get_average_prices(
+                df,
                 "BUY",
                 execution_time_start,
                 execution_time_end,
                 trading_end,
                 min_trades=min_trades,
             )
-
+            
             # vwap = get_closest_prices(execution_time_start, trading_end)
 
             net_trades = get_net_trades(all_trades, trading_end)
 
             # if all vwap["price"] are NaN
             if vwap["price"].isnull().all():
-                print("No trades in this quarter hour")
+                print(f"No trades in this quarter hour: {execution_time_start}")
                 execution_time_start = execution_time_end
                 execution_time_end = execution_time_start + pd.Timedelta(
                     minutes=bucket_size
@@ -712,12 +743,14 @@ def simulate_period(
         profits_db["min_trades"] = min_trades
 
         # save profits_db to database
+        """
         profits_db.to_sql(
             "revenues",
             conn_alchemy,
             if_exists="append",
             index=False,
-        )
+
+        )"""
 
         # save profits.csv
         profits.to_csv(os.path.join(path, "profit.csv"), index=False)
@@ -726,9 +759,11 @@ def simulate_period(
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
 
 
+real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
+
 if __name__=="__main__":
-    period_start = pd.Timestamp("2022-01-01 00:00:00", tz="Europe/Berlin")
-    period_end = pd.Timestamp("2023-01-01 00:00:00", tz="Europe/Berlin")
+    period_start = pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
+    period_end = pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
 
     simulate_period(
         period_start,
@@ -740,5 +775,7 @@ if __name__=="__main__":
         c_rate=0.5,
         roundtrip_eff=0.86,
         max_cycles=365,
-        min_trades=1,
+        min_trades=3,
+        df = load_real_data(real_path)
     )
+    logger.log( "INFO","Simulation Successfully Completed")
