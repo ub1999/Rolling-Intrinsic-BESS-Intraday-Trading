@@ -760,7 +760,6 @@ def simulate_period(
 
 
 real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
-
 if __name__=="__main__":
     period_start = pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
     period_end = pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
