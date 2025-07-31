@@ -6,10 +6,37 @@
 - [x] Replicate the method for calculating VWAP using your own synthetic data
 ### Phase 2:
 - [ ] Enable the setting of bucket size in simulation 
-- [ ] Enable get closest time
+- [ ] Enable the function get closest time
 - [ ] Start Visualisation with DASH
 ### Phase 3: 
 - [ ] Build a visualiation page to compare different strategies 
+- [ ] Strategies
+  - [ ] Different weights in VWAP depending on execution time of transaction
+  - [ ] Different bucket sizes in rolling intrinsic window
+  - [ ] Forecast based strategy 
+
+
+'''mermaid
+
+    graph TD
+        A[To Do] --> B[Phase 1]
+        B --> C[Create a notebook for generating Synthetic Data]
+        C --> D[Choose format .parquet or .csv]
+        C --> E[Choose table structure similar to Original Repo]
+        B --> F[Replicate method for calculating VWAP]
+
+        A --> G[Phase 2]
+        G --> H[Enable setting of bucket size in simulation]
+        G --> I[Enable function get closest time]
+        G --> J[Start Visualisation with DASH]
+
+        A --> K[Phase 3]
+        K --> L[Build a visualisation page to compare different strategies]
+        K --> M[Strategies]
+        M --> N[Different weights in VWAP depending on execution time]
+        M --> O[Different bucket sizes in rolling intrinsic window]
+        M --> P[Forecast based strategy]
+  '''
 
 
 # Other Notes 

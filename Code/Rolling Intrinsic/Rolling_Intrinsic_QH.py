@@ -777,4 +777,4 @@ if __name__=="__main__":
         min_trades=3,
         df = load_real_data(real_path)
     )
-    logger.log( "INFO","Simulation Successfully Completed")
+    logger.log("INFO", "Simulation Successfully Completed")
