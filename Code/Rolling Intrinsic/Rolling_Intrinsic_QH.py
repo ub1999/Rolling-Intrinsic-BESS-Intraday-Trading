@@ -16,7 +16,6 @@ import sys
 import datetime
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
-logger.add(sys.stderr, level="INFO")
 
 
 def load_fake_data(path = "")-> pd.DataFrame:
@@ -81,8 +80,7 @@ def get_average_prices(
     result = df_bucket.groupby("deliverystart",as_index=False).filter(lambda x: len(x)>=min_trades)
     result = result.groupby("deliverystart",as_index=False)\
           .apply(func = (lambda x: (x.price * x.volume).sum() / x.volume.sum()))
-    #result = VWAP from bucket
-    #logger.debug("\n" + result.to_string())
+    logger.debug("\n" + result.to_string())
     if result.shape[0]>0:
           df_vwap = pd.DataFrame(result.values, columns=["product", "price"])
     else:
@@ -769,4 +767,4 @@ if __name__=="__main__":
         min_trades=5,
         df = load_real_data(real_path)
     )
-    logger.log("INFO", f"Simulation Successfully Completed \n Simulation Lasted {datetime.datetime.now() - now}s")
+    logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")

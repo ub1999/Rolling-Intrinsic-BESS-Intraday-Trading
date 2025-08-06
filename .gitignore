@@ -13,7 +13,7 @@ tests/.cache/v/cache/lastfailed
 /Code/Rolling Intrinsic/ma_final_results_qh_sens/
 /real_data/
 CID_Data.lnk
-
+output/
 ##
 ## R Section - See 
 https://github.com/github/gitignore/blob/master/R.gitignore
