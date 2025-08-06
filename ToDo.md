@@ -15,28 +15,41 @@
   - [ ] Different bucket sizes in rolling intrinsic window
   - [ ] Forecast based strategy 
 
+### Graph 
+::: mermaid
 
-'''mermaid
+graph TD
+    subgraph B[Step 1: Gather Information]
+    direction LR
+        C[Create a notebook for generating Synthetic Data]:::completed
+        C --> D[Choose format .parquet or .csv]:::completed
+        C --> E[Choose table structure similar to Original Repo]:::completed
+        F[Replicate method for calculating VWAP]:::completed
+        F_1[Get some sample LOB transaction Data]:::completed
+        F_2[Get access to Axpo Git ⏳]:::inProgress
+    end
+    
+    subgraph G[Step 2: Helper Functions]
+    direction LR
+        H[Enable setting of bucket size in simulation]
+        I[Enable function get closest time]
+        J[Start Visualisation with DASH]
+    end
 
-    graph TD
-        A[To Do] --> B[Phase 1]
-        B --> C[Create a notebook for generating Synthetic Data]
-        C --> D[Choose format .parquet or .csv]
-        C --> E[Choose table structure similar to Original Repo]
-        B --> F[Replicate method for calculating VWAP]
-
-        A --> G[Phase 2]
-        G --> H[Enable setting of bucket size in simulation]
-        G --> I[Enable function get closest time]
-        G --> J[Start Visualisation with DASH]
-
-        A --> K[Phase 3]
-        K --> L[Build a visualisation page to compare different strategies]
-        K --> M[Strategies]
+    subgraph K[Step 3: Testing Outcomes]
+        L[Build a visualisation page to compare different strategies]
+        M[Strategies]
         M --> N[Different weights in VWAP depending on execution time]
         M --> O[Different bucket sizes in rolling intrinsic window]
         M --> P[Forecast based strategy]
-  '''
+    end
+
+    B --> G --> K
+
+    classDef completed fill:#d4edda, stroke:#c3e6cb, stroke-width:2px;
+    classDef inProgress fill:#fff3cd, stroke:#ffeeba, stroke-width:2px;
+
+:::
 
 
 # Other Notes 

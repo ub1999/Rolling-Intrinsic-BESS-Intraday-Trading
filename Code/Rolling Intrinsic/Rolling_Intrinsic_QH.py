@@ -13,22 +13,11 @@ from pulp import (
 )
 from sqlalchemy import create_engine
 import sys
+import datetime
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 logger.add(sys.stderr, level="INFO")
 
-"""
-PASSWORD = "123"
-
-
-password_for_url = f":{PASSWORD}"
-CONNECTION = f"postgres://leloq{password_for_url}@127.0.0.1/intradaydb"
-CONNECTION_ALCHEMY = f"postgresql://leloq{password_for_url}@127.0.0.1/intradaydb"
-conn = psycopg2.connect(CONNECTION)
-conn_alchemy = create_engine(CONNECTION_ALCHEMY)
-cursor = conn.cursor()
-cursor.execute("ROLLBACK")
-"""
 
 def load_fake_data(path = "")-> pd.DataFrame:
     print(os.getcwd())
@@ -759,8 +748,11 @@ def simulate_period(
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
 
 
-real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
+
 if __name__=="__main__":
+    real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
+    now = datetime.datetime.now()
+
     period_start = pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
     period_end = pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
 
@@ -771,10 +763,10 @@ if __name__=="__main__":
         threshold_abs_min=0,
         discount_rate=0,
         bucket_size=15,
-        c_rate=0.5,
-        roundtrip_eff=0.86,
+        c_rate=1,
+        roundtrip_eff=0.85,
         max_cycles=365,
-        min_trades=3,
+        min_trades=5,
         df = load_real_data(real_path)
     )
-    logger.log("INFO", "Simulation Successfully Completed")
+    logger.log("INFO", f"Simulation Successfully Completed \n Simulation Lasted {datetime.datetime.now() - now}s")
