@@ -80,7 +80,7 @@ def get_average_prices(
     result = df_bucket.groupby("deliverystart",as_index=False).filter(lambda x: len(x)>=min_trades)
     result = result.groupby("deliverystart",as_index=False)\
           .apply(func = (lambda x: (x.price * x.volume).sum() / x.volume.sum()))
-    logger.debug("\n" + result.to_string())
+    #logger.debug("\n" + result.to_string())
     if result.shape[0]>0:
           df_vwap = pd.DataFrame(result.values, columns=["product", "price"])
     else:
@@ -751,8 +751,8 @@ if __name__=="__main__":
     real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
     now = datetime.datetime.now()
 
-    period_start = pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
-    period_end = pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
+    period_start = pd.Timestamp("2025-03-23 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
+    period_end = pd.Timestamp("2025-03-26 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
 
     simulate_period(
         period_start,
@@ -763,8 +763,9 @@ if __name__=="__main__":
         bucket_size=15,
         c_rate=1,
         roundtrip_eff=0.85,
-        max_cycles=365,
+        max_cycles=(365/12)*2,# only feb and march are analysed
         min_trades=5,
-        df = load_real_data(real_path)
+        #df = load_real_data(real_path)
+        df = pd.read_parquet("id_prices.parquet")
     )
     logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")

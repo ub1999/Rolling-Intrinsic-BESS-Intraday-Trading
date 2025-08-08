@@ -14,6 +14,7 @@ tests/.cache/v/cache/lastfailed
 /real_data/
 CID_Data.lnk
 output/
+id_prices.parquet
 ##
 ## R Section - See 
 https://github.com/github/gitignore/blob/master/R.gitignore
@@ -489,3 +490,4 @@ Code/Perfect Foresight Auction-Based/BatteryEvaluation
 Code/Rolling Intrinsic/ma_final*
 Code/Rolling Intrinsic/paper_final*
 *.png
+

@@ -5,16 +5,21 @@
   - [x] Choose how the table should look, it should be similar to the database in the Original Repo
 - [x] Replicate the method for calculating VWAP using your own synthetic data
 ### Phase 2:
-- [ ] Enable the setting of bucket size in simulation 
-- [ ] Enable the function get closest time
+- [x] Enable the setting of bucket size in simulation 
+  - Implemented already. The __execution_time_end__ variable is dynamically adjusted based on bucket size!
+- [x] Enable the function get closest time
+  - Operation is performed by the function get_average_prices()
 - [ ] Start Visualisation with DASH
+
 ### Phase 3: 
 - [ ] Build a visualiation page to compare different strategies 
 - [ ] Strategies
   - [ ] Different weights in VWAP depending on execution time of transaction
   - [ ] Different bucket sizes in rolling intrinsic window
   - [ ] Forecast based strategy 
-
+### Phase 4:
+- [ ] Each day is currently simulated individually. Adapt strategy to join days.
+  - [ ] How does this look for a system incorporating resopt?
 ### Graph 
 ::: mermaid
 
