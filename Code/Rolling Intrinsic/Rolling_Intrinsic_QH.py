@@ -730,14 +730,6 @@ def simulate_period(
         profits_db["min_trades"] = min_trades
 
         # save profits_db to database
-        """
-        profits_db.to_sql(
-            "revenues",
-            conn_alchemy,
-            if_exists="append",
-            index=False,
-
-        )"""
 
         # save profits.csv
         profits.to_csv(os.path.join(path, "profit.csv"), index=False)
