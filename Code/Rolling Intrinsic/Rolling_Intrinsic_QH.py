@@ -738,26 +738,260 @@ def simulate_period(
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
 
 
+def demo_simulation_period(
+    start_day,
+    end_day,
+    threshold,
+    threshold_abs_min,
+    discount_rate,
+    bucket_size,
+    c_rate,
+    roundtrip_eff,
+    max_cycles,
+    min_trades,
+    df = load_fake_data(path=fake_path)
+):
+    log_message = (
+        "Running Rolling intrinsic QH with the following parameters:\n"
+        "Start Day: {start_day}\n"
+        "End Day: {end_day}\n"
+        "Threshold: {threshold}\n"
+        "Threshold Absolute Minimum: {threshold_abs_min}\n"
+        "Discount Rate: {discount_rate}\n"
+        "Bucket Size: {bucket_size}\n"
+        "C Rate: {c_rate}\n"
+        "Roundtrip Efficiency: {roundtrip_eff}\n"
+        "Max Cycles: {max_cycles}\n"
+        "Min Trades: {min_trades}"
+    ).format(
+        start_day=start_day,
+        end_day=end_day,
+        threshold=threshold,
+        threshold_abs_min=threshold_abs_min,
+        discount_rate=discount_rate,
+        bucket_size=bucket_size,
+        c_rate=c_rate,
+        roundtrip_eff=roundtrip_eff,
+        max_cycles=max_cycles,
+        min_trades=min_trades,
+    )
+
+    logger.info(log_message)
+
+    path = os.path.join(
+        "Dashboard",
+        "demo_output",
+        "quarterhourly",
+        "bs"
+        + str(bucket_size)
+        + "cr"
+        + str(c_rate)
+        + "rto"
+        + str(roundtrip_eff)
+        + "mc"
+        + str(max_cycles)
+        + "mt"
+        + str(min_trades)
+    )
+    tradepath = os.path.join(path, "trades")
+
+    # create directory if it doesn't exist
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    if not os.path.exists(tradepath):
+        os.makedirs(tradepath)
+
+    profitpath = os.path.join(path, "profit.csv")
+    # check if profits.csv exists in path
+    if os.path.exists(profitpath):
+        # read profits.csv
+        profits = pd.read_csv(profitpath)
+    else:
+        # create profits.csv
+        profits = pd.DataFrame(columns=["day", "profit", "cycles"])
+
+    if len(profits) > 0:
+        # set current_day to last "day" in profits.csv
+        current_day = (
+            pd.Timestamp(profits.iloc[-1]["day"], tz="Europe/Berlin")
+            + pd.Timedelta(days=1)
+            + pd.Timedelta(hours=2)
+        )
+        # set current_cycles to last "cycles" in profits.csv
+        current_cycles = profits.iloc[-1]["cycles"]
+    else:
+        current_day = start_day
+        current_cycles = 0
+
+    net_trades = pd.DataFrame(
+        columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
+    )
+    # intraday operations for today, in simulation it is set to the last day of the simulation such that all days are processed!
+    # in reality you would call this while loop multiple times!
+    while current_day < end_day:
+        current_day = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        print("current_day: ", current_day)
+
+        all_trades = pd.DataFrame(
+            columns=["execution_time", "side", "quantity", "price", "product", "profit"]
+        )
+
+        # set trading_start to current_day minus 3 hours
+        trading_start = current_day - pd.Timedelta(hours=8)
+        # set trading_end to current_day plus 1 day
+        trading_end = current_day + pd.Timedelta(days=1)
+
+        print("trading_start: ", trading_start)
+        print("trading_end: ", trading_end)
+
+        # set execution_time_start to trading_start
+        execution_time_start = trading_start
+        # set execution_time_end to trading_start plus 15 minutes
+        execution_time_end = trading_start + pd.Timedelta(minutes=bucket_size)
+
+        # calculate number of days until end_day
+        days_left = (end_day - current_day).days
+
+        allowed_cycles = max_cycles / 365 + (
+            (max_cycles / 365 * (365 - days_left)) - current_cycles
+        )
+
+        # allowed_cycles = (500 - current_cycles) / days_left
+
+        print("Days left: ", days_left)
+        print("Current cycles: ", current_cycles)
+        print("Allowed cycles: ", allowed_cycles)
+        
+        while execution_time_end < trading_end:
+            # get average price for BUY orders
+            if execution_time_start == pd.Timestamp("23:30:00",tz="Europe/Berlin"):
+                pass
+            vwap = get_average_prices(
+                df,
+                "BUY",
+                execution_time_start,
+                execution_time_end,
+                trading_end,
+                min_trades=min_trades,
+            )
+            
+            # vwap = get_closest_prices(execution_time_start, trading_end)
+
+            net_trades = get_net_trades(all_trades, trading_end)
+
+            # if all vwap["price"] are NaN
+            if vwap["price"].isnull().all():
+                print(f"No trades in this quarter hour: {execution_time_start}")
+                execution_time_start = execution_time_end
+                execution_time_end = execution_time_start + pd.Timedelta(
+                    minutes=bucket_size
+                )
+                continue
+            else:
+                try:
+                    results, trades, profit = (
+                        run_optimization_quarterhours_repositioning(
+                            vwap,
+                            execution_time_start,
+                            1,
+                            c_rate,
+                            roundtrip_eff,
+                            allowed_cycles,
+                            threshold,
+                            threshold_abs_min,
+                            discount_rate,
+                            net_trades,
+                        )
+                    )
+                    # append trades to all_trades using concat
+                    all_trades = pd.concat([all_trades, trades])
+                except ValueError:  # TODO: see if ValueError is right
+                    print("Error in optimization")
+                    print("execution_time_start: ", execution_time_start)
+                    execution_time_start = execution_time_end
+                    execution_time_end = execution_time_start + pd.Timedelta(
+                        minutes=bucket_size
+                    )
+
+                    continue
+
+            execution_time_start = execution_time_end
+            execution_time_end = execution_time_start + pd.Timedelta(
+                minutes=bucket_size
+            )
+
+        # calculate daily_profit as sum of all_trades["profit"]
+        daily_profit = all_trades["profit"].sum()
+
+        current_cycles += net_trades["net_buy"].sum() / 4.0 * roundtrip_eff**0.5
+
+        # save trades
+        all_trades.to_csv(
+            os.path.join(tradepath,
+            "trades_" + current_day.strftime("%Y-%m-%d") + ".csv"),
+            index=False,
+        )
+
+        # append daily_profit to profits.csv using concat
+        profits = pd.concat(
+            [
+                profits,
+                pd.DataFrame(
+                    [[current_day, daily_profit, current_cycles]],
+                    columns=["day", "profit", "cycles"],
+                ),
+            ]
+        )
+
+        profits_db = pd.DataFrame(
+            [
+                [
+                    current_day,
+                    daily_profit,
+                    net_trades["net_buy"].sum() / 4.0 * roundtrip_eff**0.5,
+                ]
+            ],
+            columns=["day", "profit", "cycles"],
+        )
+
+        # add column threshold, threshold_abs and discount_rate to profits_db
+        profits_db["type_freq"] = "QH"
+        profits_db["max_cycles"] = max_cycles
+        profits_db["bucket_size"] = bucket_size
+        profits_db["rto"] = roundtrip_eff
+        profits_db["c_rate"] = c_rate
+        profits_db["min_trades"] = min_trades
+
+        # save profits_db to database
+
+        # save profits.csv
+        profits.to_csv(os.path.join(path, "profit.csv"), index=False)
+
+        # set current day to current_day plus 1 day
+        current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
+
 
 if __name__=="__main__":
     real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
     now = datetime.datetime.now()
 
-    period_start = pd.Timestamp("2025-03-23 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
-    period_end = pd.Timestamp("2025-03-26 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
-
-    simulate_period(
-        period_start,
-        period_end,
-        threshold=0,
-        threshold_abs_min=0,
-        discount_rate=0,
-        bucket_size=15,
-        c_rate=1,
-        roundtrip_eff=0.85,
-        max_cycles=(365/12)*2,# only feb and march are analysed
-        min_trades=5,
-        #df = load_real_data(real_path)
-        df = pd.read_parquet("id_prices.parquet")
-    )
-    logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")
+    period_start = pd.Timestamp("2025-02-01 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
+    period_end = pd.Timestamp("2025-03-01 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
+    for bucket_size in [1]:
+        demo_simulation_period(
+            period_start,
+            period_end,
+            threshold=0,
+            threshold_abs_min=0,
+            discount_rate=0,
+            bucket_size=bucket_size,
+            c_rate=1,
+            roundtrip_eff=0.85,
+            max_cycles=(365/12),# only feb analysed
+            min_trades=5,
+            #df = load_real_data(real_path)
+            df = pd.read_parquet("id_prices.parquet")
+        )
+        logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")

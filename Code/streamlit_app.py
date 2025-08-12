@@ -1,144 +1,144 @@
-import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-import numpy as np
-import sys
 import os
+import sys
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
 
+# Make your local package importable (adds location of rolling intrinsic to system path variable)
 sys.path.append(os.path.relpath("./Code/Rolling Intrinsic/"))
 from Rolling_Intrinsic_QH import simulate_period
-# ================== Helper Function ==================
-# ======== Plotting Data ================
-def load_plotting_data(start_date ="02.01.2025" ,end_date = "03.01.2025", profitpath = "")->pd.DataFrame:
-    filter = slice(start_date, end_date)
-    initial_results = pd.read_csv(profitpath,
-                            index_col="day",
-                            parse_dates=True
-                            )
-    initial_results.index = initial_results.index.strftime("%D")
-    initial_results = initial_results[filter]
-    return initial_results
+# -------------------------- Page Description --------------------------
+st.set_page_config(page_title="Simulate February 2025", page_icon="👋")
 
-# ==== Plot main chart
-def plot_base_chart(initial_results : pd.DataFrame):
-    # Initial Plots
-    fig = px.bar(initial_results.reset_index(),x="day",y="profit")
-    fig.update_xaxes(tickangle=-80)
-    fig = px.bar(
-        initial_results.reset_index(),
-        x="day",
-        y="profit",
-        labels={"profit": "Daily profit (€)"}
+# -------------------------- Helpers --------------------------
+
+def build_paths(bess: dict) -> dict:
+    """Build output paths from parameters and stash in session_state."""
+    base = os.path.join(
+        "output",
+        "quarterhourly",
+        f"bs{bess['bucket_size']}cr{bess['c_rate']}rto{bess['roundtrip_eff']}mc{bess['max_cycles']}mt{bess['min_trades']}",
     )
+    return {
+        "base": base,
+        "trades": os.path.join(base, "trades"),
+        "profit": os.path.join(base, "profit.csv"),
+    }
 
-    # cumulative line (right y-axis)
-    fig.add_trace(
-        go.Scatter(
-            x=initial_results.reset_index()["day"],
-            y=initial_results["profit"].cumsum(),
-            mode="lines+markers",
-            name="Cumulative profit",
-            yaxis="y2"                 # <- tell Plotly to use the 2nd axis
-        )
-    )
+def ensure_paths(paths: dict):
+    """Create dirs/files if missing."""
+    os.makedirs(paths["base"], exist_ok=True)
+    os.makedirs(paths["trades"], exist_ok=True)
+    # 'profit' is a CSV file; ensure it exists
+    if not os.path.exists(paths["profit"]):
+        with open(paths["profit"], "w", encoding="utf-8") as f:
+            f.write("day,profit\n")  # optional header
 
-    # define and format the second y-axis
-    fig.update_layout(
-        yaxis2=dict(
-            title="Cumulative (€)",
-            overlaying="y",           # share the same x-axis
-            side="right"              # draw on the right
-        ),
-        xaxis_title="Day",
-        title = f"Profits for {initial_results.index[0]} - {initial_results.index[-1]}",
-        xaxis = dict(
-            rangeslider = dict(visible=True,
-                            thickness=0.1,
-                            
-                            )
-            )
-    ) 
+@st.cache_data # Caches the LOB data so it doesnt have to be loaded each time.
+def load_price_data(path="id_prices.parquet") -> pd.DataFrame:
+    return pd.read_parquet(path)
 
-    st.plotly_chart(fig)
-    return
-
-# ========== Create the files if its a new simulation ============= 
-def create_simulation_results_path(path,tradepath,profitpath)->None:
-    if not os.path.exists(path):
-        # Create a new path 
-        os.mkdir(path=path)
-        st.write(f"Created new directory : {path}")
-        if not os.path.exists(tradepath): 
-            st.write(f"File {tradepath} not found!")
-            st.write(f"Creating new file : {tradepath}")
-            os.mkdir(tradepath)
-        if not os.path.exists(profitpath):
-            st.write(f"File {profitpath} not found!")
-            st.write(f"Creating new file: {profitpath}")
-            f = open(profitpath, "w")
-        return 
-
-
-@st.cache_data
-def load_price_data(path = "id_prices.parquet")->pd.DataFrame:
-    df = pd.read_parquet(path)
+def load_plotting_data(profitpath: str, start=None, end=None) -> pd.DataFrame:
+    """Load profit.csv, keep a DateTimeIndex, and (optionally) slice by date."""
+    df = pd.read_csv(profitpath, parse_dates=["day"])
+    if df.empty:
+        return df
+    df = df.set_index("day").sort_index()
+    if start or end:
+        df = df.loc[start:end]
     return df
 
-@st.cache_data()
-def simulate_bess()->None:
-    period_start = pd.Timestamp("2025-02-01 00:00:00",tz="Europe/Berlin")
-    period_end = pd.Timestamp("2025-02-05 02:00:00",tz="Europe/Berlin")
-    
-    simulate_period(
-    period_start,
-    period_end,
-    threshold = st.session_state.bess["threshold"],
-    threshold_abs_min = st.session_state.bess["threshold_abs_min"],
-    discount_rate = 0,
-    bucket_size = st.session_state.bess["bucket_size"],
-    c_rate = st.session_state.bess["c_rate"],
-    roundtrip_eff = st.session_state.bess["roundtrip_eff"],
-    max_cycles = st.session_state.bess["max_cycles"],# only feb 
-    min_trades = st.session_state.bess["min_trades"],
-    #df = load_real_data(real_path)
-    df = load_price_data()
+def plot_base_chart(df: pd.DataFrame):
+    """ Bar (daily) + line (cumulative) with secondary y-axis and rangeslider."""
+    if df.empty:
+        st.info("No profit data to plot yet.")
+        return
+
+    cumulative_sum = df["profit"].cumsum()
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_bar(x=df.index, y=df["profit"], name="Daily profit (€)")
+    fig.add_scatter(x=df.index, y=cumulative_sum, name="Cumulative (€)", mode="lines+markers", secondary_y=True)
+
+    fig.update_yaxes(title_text="Daily (€)", secondary_y=False)
+    fig.update_yaxes(title_text="Cumulative (€)", secondary_y=True)
+
+    fig.update_xaxes(
+        tickangle=-80,
+        tickformat="%d %b",               # show day + month only
+        rangeslider=dict(visible=True, thickness=0.10),
     )
-    
-    return None
+
+    fig.update_layout(
+        xaxis_title = "Day",
+        title = f"Profits for {df.index[0].date()} – {df.index[-1].date()}",
+        legend = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 
 
+# -------------------------- Simulation --------------------------
 
-# Assume everything is run from the Rolling Intrinsic Parent directory
-# ─────────────────────────────────────────────────────────────
-# init the dict in session_state (only first run)
-# ────────────────────────────────────────────────────────────
+def simulate_bess(period_start: pd.Timestamp,
+                  period_end: pd.Timestamp,
+                  bess: dict) -> None:
+    """Run the simulation (side-effect: writes to files)."""
+    # You can pass df directly or a path. Here we use the cached loader:
+    df_prices = load_price_data()
+    simulate_period(
+        period_start,
+        period_end,
+        threshold=bess["threshold"],
+        threshold_abs_min=bess["threshold_abs_min"],
+        discount_rate=bess["discount_rate"],
+        bucket_size=bess["bucket_size"],
+        c_rate=bess["c_rate"],
+        roundtrip_eff=bess["roundtrip_eff"],
+        max_cycles=bess["max_cycles"],
+        min_trades=bess["min_trades"],
+        df=df_prices,
+    )
+
+# -------------------------- App State --------------------------
+
 if "bess" not in st.session_state:
     st.session_state.bess = {}
+if "paths" not in st.session_state:
+    st.session_state.paths = {}
+if "last_run_ok" not in st.session_state:
+    st.session_state.last_run_ok = False
+
+# -------------------------- UI --------------------------
 
 st.markdown("### Welcome to Battery Data Charts")
 
-with open("./Dashboard/ToDo_Streamlit.md","r") as f:
-    mkdow_str = f.read()
-    st.markdown(body=mkdow_str)
+with open("./Dashboard/ToDo_Streamlit.md", "r", encoding="utf-8") as f:
+    st.markdown(f.read())
 
+left_column, right_column = st.columns(2)
 
-# ========== LEFT COLUMN ==========
-left_column,right_column = st.columns(2)
+# ===== Left column: parameters and path resolution =====
 with left_column:
-    st.markdown("### BESS Simulation Parameters")  
+    st.markdown("### BESS Simulation Parameters")
     with st.form("add_param"):
-        threshold = 0
-        threshold_abs_min = 0
-        discount_rate = 0
-        bucket_size = st.number_input("Bucket Size of Rolling Window [mins]",value=15)
-        c_rate = st.number_input("C_Rate",value=1)
-        roundtrip_eff = st.number_input("Round Trip Efficiency",value=0.85)
-        max_cycles = (365/12)*1
-        min_trades = st.number_input("Min No. Trades",value=5)
+        # Explicit controls for all fields you store
+        bucket_size    = st.number_input("Bucket Size of Rolling Window [mins]", value=15, step=1)
+        c_rate         = st.number_input("C_Rate", value=1.0, step=0.1)
+        roundtrip_eff  = st.number_input("Round Trip Efficiency", value=0.85, step=0.01)
+        max_cycles     = st.number_input("Max cycles per year", value=float(365/12), step=1.0)
+        min_trades     = st.number_input("Min No. Trades", value=5, step=1)
+
+        # previously hard-coded; expose if needed
+        discount_rate  = st.number_input("Discount rate", value=0.0, step=0.005, format="%.3f")
+        threshold      = st.number_input("Threshold", value=0.0, step=0.1)
+        threshold_abs_min = st.number_input("Absolute min threshold", value=0.0, step=0.1)
+
         saved = st.form_submit_button("Save / update")
+        
     if saved:
         st.session_state.bess = {
             "bucket_size": bucket_size,
@@ -150,42 +150,47 @@ with left_column:
             "threshold": threshold,
             "threshold_abs_min": threshold_abs_min,
         }
-        st.success("Parameters stored")
-        # ========== Results File Paths ==========
-        path = os.path.join(
-                "output",
-                "quarterhourly",
-                "bs"
-                + str(bucket_size)
-                + "cr"
-                + str(c_rate)
-                + "rto"
-                + str(roundtrip_eff)
-                + "mc"
-                + str(max_cycles)
-                + "mt"
-                + str(min_trades)
-            )
-        tradepath = os.path.join(path, "trades")
-        profitpath = os.path.join(path, "profit.csv")
-        if (os.path.exists(profitpath) & (os.path.exists(tradepath))) & (os.path.exists(path)):
-            st.write("Simulation results already exist!")
-            plot_base_chart(initial_results=load_plotting_data(profitpath=profitpath))
-        else:
-            st.write("Simulation results don't exist! Run a new simulation")
-            create_simulation_results_path(path,tradepath=tradepath,profitpath=profitpath)
+        # compute and store paths so both columns can use them
+        st.session_state.paths = build_paths(st.session_state.bess)
+        ensure_paths(st.session_state.paths)
+        st.session_state.last_run_ok = False  # new params → require (re)run
+        st.success("Parameters stored and paths prepared.")
 
 
 
-# ========== RIGHT COLUMN ==========
+# ===== Right column: current params and run button =====
 with right_column:
     if st.session_state.bess:
-        st.write("Current parameters")
+        st.subheader("Current parameters")
         st.json(st.session_state.bess)
-    if st.button("Run Simulation"):
-        st.write("Simulation will run now")
-        with st.spinner("Running simulation…"):
-            simulate_bess()
-            st.success("Simulation Finished")
-        plot_base_chart(load_plotting_data(profitpath = profitpath))
+
+    if st.button("Run Simulation", type="primary", use_container_width=True):
+        if not st.session_state.bess:
+            st.error("Please save parameters first.")
+        else:
+            st.write("Simulation will run now")
+            with st.spinner("Running simulation…"):
+                try:
+                    # Define the period here or make it user-configurable
+                    period_start = pd.Timestamp("2025-02-01 00:00:00", tz="Europe/Berlin")
+                    period_end   = pd.Timestamp("2025-03-01 02:00:00", tz="Europe/Berlin")
+
+                    simulate_bess(period_start, period_end, st.session_state.bess)
+                    st.session_state.last_run_ok = True
+                    st.success("Simulation finished.")
+                except Exception as ex:
+                    st.session_state.last_run_ok = False
+                    st.error(f"Simulation failed: {ex}")
+
+
+
+
+# ===== Final: only plot when both sides are resolved and run succeeded (or results already exist) =====
+profit_csv = st.session_state.paths.get("profit") if st.session_state.paths else None
+if profit_csv and os.path.exists(profit_csv):
+    # Plot if (a) last run finished OK, or (b) we already had historical results
+    st.session_state.last_run_ok = True  if load_plotting_data(profit_csv).shape[0]>0 else st.info("Path Exists, but no simulation results exist! Run the Simulation")
+    if st.session_state.last_run_ok or not st.session_state.bess:
+        df_plot = load_plotting_data(profit_csv)
+        plot_base_chart(df_plot)
 
