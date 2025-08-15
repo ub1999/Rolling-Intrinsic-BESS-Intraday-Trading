@@ -169,6 +169,7 @@ with right_column:
             st.error("Please save parameters first.")
         else:
             st.write("Simulation will run now")
+            
             with st.spinner("Running simulation…"):
                 try:
                     # Define the period here or make it user-configurable

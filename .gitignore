@@ -15,6 +15,8 @@ tests/.cache/v/cache/lastfailed
 CID_Data.lnk
 output/
 id_prices.parquet
+/bitepy_test/
+/.vscode/
 ##
 ## R Section - See 
 https://github.com/github/gitignore/blob/master/R.gitignore
