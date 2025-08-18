@@ -272,17 +272,21 @@ def run_optimization_quarterhours_repositioning(
 
     # Objective function
     # Adjusted objective component for cases where previous trades < e
+    # This means basically no quantity of product i has been traded so far!
+
+    # Threshold usage: The generated profit for trading product i,
+    # has to be higher than an amount created by the threshholds variable. It accomplishes this by lowering
+    # sell price, and increasing buy price. If the value of the trade is still > 0, then the trade is worth it.
+    use_threshold = max(
+        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])), threshold_abs_min
+        )/2
     adjusted_obj = [
         (
             (
                 current_sell_qh[i]
                 * (
                     prices_qh_adj.loc[i, "price"]
-                    - max(
-                        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])),
-                        threshold_abs_min,
-                    )
-                    / 2
+                    - use_threshold
                     - e
                 )
             )
@@ -290,17 +294,12 @@ def run_optimization_quarterhours_repositioning(
                 current_buy_qh[i]
                 * (
                     prices_qh_adj_buy.loc[i, "price"]
-                    + max(
-                        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])),
-                        threshold_abs_min,
-                    )
-                    / 2
+                    + use_threshold
                     + e
                 )
             )
         )
-        * 1.0
-        / 4.0
+        * 1.0/4.0
         for i in prices_qh.index
         if not pd.isna(prices_qh.loc[i, "price"])
         and (
@@ -315,8 +314,7 @@ def run_optimization_quarterhours_repositioning(
             current_sell_qh[i] * (prices_qh.loc[i, "price"] - e)
             - current_buy_qh[i] * prices_qh.loc[i, "price"]
         )
-        * 1.0
-        / 4.0
+        * 1.0 / 4.0
         for i in prices_qh.index
         if not pd.isna(prices_qh.loc[i, "price"])
         and (
@@ -337,8 +335,8 @@ def run_optimization_quarterhours_repositioning(
         m_battery += (
             battery_soc[i]
             == battery_soc[previous_index]
-            + net_buy[previous_index] * efficiency * 1.0 / 4.0
-            - net_sell[previous_index] * 1.0 / 4.0 / efficiency,
+            + net_buy[previous_index] * efficiency * 1.0 / 4.0 # energy stored
+            - net_sell[previous_index] * 1.0 / 4.0 / efficiency, # energy discharged
             f"BatteryBalance_{i}",
         )
         previous_index = i
