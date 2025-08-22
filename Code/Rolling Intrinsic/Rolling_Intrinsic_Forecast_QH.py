@@ -11,7 +11,7 @@ from pulp import (
     LpMaximize, PULP_CBC_CMD,
     # GUROBI,
 )
-from sqlalchemy import create_engine
+from pandas._libs.tslibs.parsing import DateParseError
 import sys
 import datetime
 
@@ -54,8 +54,48 @@ def load_real_data(path = "")->pd.DataFrame:
     df
     return df
 
-def get_average_prices(
-    df,side, execution_time_start, execution_time_end, end_date, min_trades=10
+def ret_deliverystartend(deliverystart:str):
+    start,end = deliverystart.split(" - ")
+    return start,end
+def check_set_dt(ts:str):
+    try:
+        ts = pd.to_datetime(ts,dayfirst=True,format="mixed")\
+            .tz_localize(tz="Europe/Berlin")
+    except DateParseError as e:
+        print(e,"\nChecking if CET or CEST included in string")
+        if ts.endswith("(CET)") or ts.endswith("(CEST)") :
+            ts = ts.replace("(CET)","")
+            ts = ts.replace("(CEST)","")
+            pd.to_datetime(ts,dayfirst=True,format="mixed")\
+                .tz_localize(tz="Europe/Berlin")
+            print(f"error resolved for {ts}")
+        else :
+            print("Error unresolved, replacing timestap with NAN")
+            ts = np.nan
+    return ts
+    
+
+def load_forecast_data(path = "")->pd.DataFrame:
+    df_forecast = pd.read_csv(path)
+    df_forecast = df_forecast[df_forecast.Sequence=="Sequence Sequence 1"]
+    df_forecast = df_forecast.loc[:,['MTU (CET/CEST)','Day-ahead Price (EUR/MWh)']].reset_index(drop=True)
+    df_forecast.columns=["product","price"]
+
+    df_temp = pd.DataFrame.from_records(df_forecast["product"].apply(ret_deliverystartend),
+                            columns=["deliverystart","deliveryend"])
+    df_forecast = df_temp.join(df_forecast).drop(["product","deliveryend"],axis=1)
+    df_forecast["deliverystart"] = df_forecast.deliverystart.apply(check_set_dt)
+    df_forecast.set_index("deliverystart",inplace=True)
+    return df_forecast
+
+
+def get_average_prices_w_forecast(
+    df_forecast,
+    df_CID,side, 
+    execution_time_start, 
+    execution_time_end, 
+    end_date, 
+    min_trades=10
     ):
     # set start_of_day to end_date minus 1 day
     start_of_day = (pd.to_datetime(end_date) - pd.Timedelta(hours=2))
@@ -65,39 +105,43 @@ def get_average_prices(
     start_of_day = start_of_day.replace(hour=0, minute=0)
     end_of_day = start_of_day
     end_of_day = end_of_day.replace(hour=23, minute=45)
-    # This is the Postgres query that checks for transactions:
-    #   within a certain timestep (Rolling Window),
-    #   Where products are:  
-    #       either buy or sell transactions,
-    #       With delivery within the chosen day
-    #       The results are grouped by product, and only groups with over the threshold of min trades are kept fetched
-    # It returns volume wighted average price
-    df_bucket = df.loc[execution_time_start:execution_time_end,:].copy()
-    
+
+
+    df_bucket = df_CID.loc[execution_time_start:execution_time_end,:].copy()
     filter = (df_bucket.side==side) & (df_bucket.deliverystart < end_date) & (df_bucket.deliverystart>=start_of_day)
     df_bucket = df_bucket[filter]
-    #logger.debug("\n"+"."*50 + "This is the bucket data" + "."*50 + "\n" + df_bucket.to_string())
+
     result = df_bucket.groupby("deliverystart",as_index=False).filter(lambda x: len(x)>=min_trades)
     result = result.groupby("deliverystart",as_index=False)\
           .apply(func = (lambda x: (x.price * x.volume).sum() / x.volume.sum()))
-    #logger.debug("\n" + result.to_string())
     if result.shape[0]>0:
           df_vwap = pd.DataFrame(result.values, columns=["product", "price"])
     else:
-         #logger.debug("Not enough trades above threshold for ANY Product")
          return pd.DataFrame(np.array([[np.nan,np.nan],[np.nan,np.nan]]), columns=["product", "price"])
-    df_vwap = df_vwap.astype(
-       { "price" : "float64",
-       }
-    )
+    df_vwap = df_vwap.astype({ "price" : "float64"})
+    
    
     # set index to product
     df_vwap.set_index("product", inplace=True)
-    #print(df_vwap) 
+    
     # set index to be all 15 minute intervals from start_of_day to end_of_day, filling missing values with NaN
     df_vwap = df_vwap.reindex(pd.date_range(start_of_day, end_of_day, freq="15min"))
+
+    # Ensures that the last index isnt included twice!
+    # include the forecasted product price for everything beyond 5 hours from now
+    if (execution_time_end + pd.Timedelta(hours=5)) < start_of_day:
+      include_forecast = start_of_day
+    # if executiontime + 5 hours are within the deliveryday,then 
+    else:  
+      include_forecast = execution_time_end + pd.Timedelta(hours=5)
+    vwap_price = df_vwap.loc[:include_forecast].iloc[:-2]
+    # Don't include the end date
+    forecast_price = df_forecast.loc[include_forecast:end_of_day]
+
+
+    df_vwap_w_forecast = pd.concat([vwap_price, forecast_price],axis=0)  
     #logger.debug("\n"+"."*50 + "This is the VWAP" + "."*50 + "\n" + df_vwap.to_string())
-    return df_vwap
+    return df_vwap_w_forecast
 
 def get_closest_prices(execution_time_start, end_date):
     # set start_of_day to end_date minus 1 day
@@ -277,9 +321,7 @@ def run_optimization_quarterhours_repositioning(
     # Threshold usage: The generated profit for trading product i,
     # has to be higher than an amount created by the threshholds variable. It accomplishes this by lowering
     # sell price, and increasing buy price. If the value of the trade is still > 0, then the trade is worth it.
-    """use_threshold = max(
-        abs((threshold / 100) * abs(prices_qh.loc[i, "price"])), threshold_abs_min
-        )/2"""
+
     adjusted_obj = [
         (
             (
@@ -506,7 +548,7 @@ def get_net_trades(trades, end_date):
 
 fake_path = os.path.normpath("C:/Users/UnmuBhar/Documents/Intraday Research/POCs/Rolling-Intrinsic-BESS-Intraday-Trading/fake_data")
 
-def simulate_period(
+def demo_forecastsimulation_period(
     start_day,
     end_day,
     threshold,
@@ -517,241 +559,9 @@ def simulate_period(
     roundtrip_eff,
     max_cycles,
     min_trades,
-    df = load_fake_data(path=fake_path)
-):
-    log_message = (
-        "Running Rolling intrinsic QH with the following parameters:\n"
-        "Start Day: {start_day}\n"
-        "End Day: {end_day}\n"
-        "Threshold: {threshold}\n"
-        "Threshold Absolute Minimum: {threshold_abs_min}\n"
-        "Discount Rate: {discount_rate}\n"
-        "Bucket Size: {bucket_size}\n"
-        "C Rate: {c_rate}\n"
-        "Roundtrip Efficiency: {roundtrip_eff}\n"
-        "Max Cycles: {max_cycles}\n"
-        "Min Trades: {min_trades}"
-    ).format(
-        start_day=start_day,
-        end_day=end_day,
-        threshold=threshold,
-        threshold_abs_min=threshold_abs_min,
-        discount_rate=discount_rate,
-        bucket_size=bucket_size,
-        c_rate=c_rate,
-        roundtrip_eff=roundtrip_eff,
-        max_cycles=max_cycles,
-        min_trades=min_trades,
-    )
-
-    logger.info(log_message)
-
-    path = os.path.join(
-        "output",
-        "quarterhourly",
-        "bs"
-        + str(bucket_size)
-        + "cr"
-        + str(c_rate)
-        + "rto"
-        + str(roundtrip_eff)
-        + "mc"
-        + str(max_cycles)
-        + "mt"
-        + str(min_trades)
-    )
-    tradepath = os.path.join(path, "trades")
-
-    # create directory if it doesn't exist
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    if not os.path.exists(tradepath):
-        os.makedirs(tradepath)
-
-    profitpath = os.path.join(path, "profit.csv")
-    # check if profits.csv exists in path
-    if os.path.exists(profitpath):
-        # read profits.csv
-        profits = pd.read_csv(profitpath)
-    else:
-        # create profits.csv
-        profits = pd.DataFrame(columns=["day", "profit", "cycles"])
-
-    if len(profits) > 0:
-        # set current_day to last "day" in profits.csv
-        current_day = (
-            pd.Timestamp(profits.iloc[-1]["day"], tz="Europe/Berlin")
-            + pd.Timedelta(days=1)
-            + pd.Timedelta(hours=2)
-        )
-        # set current_cycles to last "cycles" in profits.csv
-        current_cycles = profits.iloc[-1]["cycles"]
-    else:
-        current_day = start_day
-        current_cycles = 0
-
-    net_trades = pd.DataFrame(
-        columns=["sum_buy", "sum_sell", "net_buy", "net_sell", "product"]
-    )
-    # intraday operations for today, in simulation it is set to the last day of the simulation such that all days are processed!
-    # in reality you would call this while loop multiple times!
-    while current_day < end_day:
-        current_day = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        print("current_day: ", current_day)
-
-        all_trades = pd.DataFrame(
-            columns=["execution_time", "side", "quantity", "price", "product", "profit"]
-        )
-
-        # set trading_start to current_day minus 3 hours
-        trading_start = current_day - pd.Timedelta(hours=8)
-        # set trading_end to current_day plus 1 day
-        trading_end = current_day + pd.Timedelta(days=1)
-
-        print("trading_start: ", trading_start)
-        print("trading_end: ", trading_end)
-
-        # set execution_time_start to trading_start
-        execution_time_start = trading_start
-        # set execution_time_end to trading_start plus 15 minutes
-        execution_time_end = trading_start + pd.Timedelta(minutes=bucket_size)
-
-        # calculate number of days until end_day
-        days_left = (end_day - current_day).days
-
-        allowed_cycles = max_cycles / 365 + (
-            (max_cycles / 365 * (365 - days_left)) - current_cycles
-        )
-
-        # allowed_cycles = (500 - current_cycles) / days_left
-
-        print("Days left: ", days_left)
-        print("Current cycles: ", current_cycles)
-        print("Allowed cycles: ", allowed_cycles)
-        
-        while execution_time_end < trading_end:
-            # get average price for BUY orders
-            if execution_time_start == pd.Timestamp("23:30:00",tz="Europe/Berlin"):
-                pass
-            vwap = get_average_prices(
-                df,
-                "BUY",
-                execution_time_start,
-                execution_time_end,
-                trading_end,
-                min_trades=min_trades,
-            )
-            
-            # vwap = get_closest_prices(execution_time_start, trading_end)
-
-            net_trades = get_net_trades(all_trades, trading_end)
-
-            # if all vwap["price"] are NaN
-            if vwap["price"].isnull().all():
-                print(f"No trades in this quarter hour: {execution_time_start}")
-                execution_time_start = execution_time_end
-                execution_time_end = execution_time_start + pd.Timedelta(
-                    minutes=bucket_size
-                )
-                continue
-            else:
-                try:
-                    results, trades, profit = (
-                        run_optimization_quarterhours_repositioning(
-                            vwap,
-                            execution_time_start,
-                            1,
-                            c_rate,
-                            roundtrip_eff,
-                            allowed_cycles,
-                            threshold,
-                            threshold_abs_min,
-                            discount_rate,
-                            net_trades,
-                        )
-                    )
-                    # append trades to all_trades using concat
-                    all_trades = pd.concat([all_trades, trades])
-                except ValueError:  # TODO: see if ValueError is right
-                    print("Error in optimization")
-                    print("execution_time_start: ", execution_time_start)
-                    execution_time_start = execution_time_end
-                    execution_time_end = execution_time_start + pd.Timedelta(
-                        minutes=bucket_size
-                    )
-
-                    continue
-
-            execution_time_start = execution_time_end
-            execution_time_end = execution_time_start + pd.Timedelta(
-                minutes=bucket_size
-            )
-
-        # calculate daily_profit as sum of all_trades["profit"]
-        daily_profit = all_trades["profit"].sum()
-
-        current_cycles += net_trades["net_buy"].sum() / 4.0 * roundtrip_eff**0.5
-
-        # save trades
-        all_trades.to_csv(
-            os.path.join(tradepath,
-            "trades_" + current_day.strftime("%Y-%m-%d") + ".csv"),
-            index=False,
-        )
-
-        # append daily_profit to profits.csv using concat
-        profits = pd.concat(
-            [
-                profits,
-                pd.DataFrame(
-                    [[current_day, daily_profit, current_cycles]],
-                    columns=["day", "profit", "cycles"],
-                ),
-            ]
-        )
-
-        profits_db = pd.DataFrame(
-            [
-                [
-                    current_day,
-                    daily_profit,
-                    net_trades["net_buy"].sum() / 4.0 * roundtrip_eff**0.5,
-                ]
-            ],
-            columns=["day", "profit", "cycles"],
-        )
-
-        # add column threshold, threshold_abs and discount_rate to profits_db
-        profits_db["type_freq"] = "QH"
-        profits_db["max_cycles"] = max_cycles
-        profits_db["bucket_size"] = bucket_size
-        profits_db["rto"] = roundtrip_eff
-        profits_db["c_rate"] = c_rate
-        profits_db["min_trades"] = min_trades
-
-        # save profits_db to database
-
-        # save profits.csv
-        profits.to_csv(os.path.join(path, "profit.csv"), index=False)
-
-        # set current day to current_day plus 1 day
-        current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
-
-
-def demo_simulation_period(
-    start_day,
-    end_day,
-    threshold,
-    threshold_abs_min,
-    discount_rate,
-    bucket_size,
-    c_rate,
-    roundtrip_eff,
-    max_cycles,
-    min_trades,
-    df = load_fake_data(path=fake_path)
+    df = load_fake_data(path=fake_path),
+    #adjust to include DAM data
+    df_forecast = load_forecast_data(path="2025_SDAC_auction_results.csv")
 ):
     log_message = (
         "Running Rolling intrinsic QH with the following parameters:\n"
@@ -783,6 +593,7 @@ def demo_simulation_period(
     path = os.path.join(
         "Dashboard",
         "demo_output",
+        "forecast_based",
         "quarterhourly",
         "bs"
         + str(bucket_size)
@@ -842,6 +653,7 @@ def demo_simulation_period(
 
         # set trading_start to current_day minus 3 hours
         trading_start = current_day - pd.Timedelta(hours=8)
+
         # set trading_end to current_day plus 1 day
         trading_end = current_day + pd.Timedelta(days=1)
 
@@ -850,8 +662,9 @@ def demo_simulation_period(
 
         # set execution_time_start to trading_start
         execution_time_start = trading_start
+
         # set execution_time_end to trading_start plus 15 minutes
-        execution_time_end = trading_start + pd.Timedelta(minutes=bucket_size)
+        execution_time_end = trading_start + pd.Timedelta(minutes = bucket_size)
 
         # calculate number of days until end_day
         days_left = (end_day - current_day).days
@@ -865,17 +678,19 @@ def demo_simulation_period(
         print("Days left: ", days_left)
         print("Current cycles: ", current_cycles)
         print("Allowed cycles: ", allowed_cycles)
-        
+
+        # as long as trading day hasnt finished, keep trading
         while execution_time_end < trading_end:
             # get average price for BUY orders
             if execution_time_start == pd.Timestamp("23:30:00",tz="Europe/Berlin"):
                 pass
-            vwap = get_average_prices(
-                df,
-                "BUY",
-                execution_time_start,
-                execution_time_end,
-                trading_end,
+            vwap = get_average_prices_w_forecast(
+                df_forecast = df_forecast,
+                df_CID = df,
+                side = "BUY",
+                execution_time_start = execution_time_start,
+                execution_time_end = execution_time_end,
+                end_date = trading_end,
                 min_trades=min_trades,
             )
             
@@ -893,10 +708,14 @@ def demo_simulation_period(
                 continue
             else:
                 try:
+                    ###################### Optimization Called #######################
+                    # Only include trades for products within next 45 min
                     results, trades, profit = (
                         run_optimization_quarterhours_repositioning(
                             vwap,
-                            execution_time_start,
+                            execution_time_start, 
+                            # This is wrong, because we are making trades on past information?
+                            # So its looking at past trades and selecting best ones?
                             1,
                             c_rate,
                             roundtrip_eff,
@@ -907,8 +726,15 @@ def demo_simulation_period(
                             net_trades,
                         )
                     )
+                    
+                    next_45_min = execution_time_end + pd.Timedelta(minutes=45)
+                    include_trades = trades["product"] < next_45_min
+                    trades = trades[include_trades]
+                    
+                    
                     # append trades to all_trades using concat
                     all_trades = pd.concat([all_trades, trades])
+                    ##################### All Trades Adjusted ##############################
                 except ValueError:  # TODO: see if ValueError is right
                     print("Error in optimization")
                     print("execution_time_start: ", execution_time_start)
@@ -980,9 +806,9 @@ if __name__=="__main__":
     now = datetime.datetime.now()
 
     period_start = pd.Timestamp("2025-02-01 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
-    period_end = pd.Timestamp("2025-03-01 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
-    for bucket_size in [1]:
-        demo_simulation_period(
+    period_end = pd.Timestamp("2025-02-08 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
+    for bucket_size in [15]:
+        demo_forecastsimulation_period(
             period_start,
             period_end,
             threshold=0,
@@ -994,6 +820,7 @@ if __name__=="__main__":
             max_cycles=(365/12),# only feb analysed
             min_trades=5,
             #df = load_real_data(real_path)
-            df = pd.read_parquet("id_prices.parquet")
+            df = pd.read_parquet("id_prices.parquet"),
+            df_forecast=load_forecast_data(path="2025_SDAC_auction_results.csv")
         )
         logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")
