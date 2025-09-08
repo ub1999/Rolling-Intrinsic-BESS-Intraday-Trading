@@ -7,11 +7,13 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 # Make your local package importable (adds location of rolling intrinsic to system path variable)
-sys.path.append(os.path.relpath("./Code/Rolling Intrinsic/"))
+path_RI = os.path.relpath(r"Code\Rolling Intrinsic\\")
+sys.path.append(path_RI)
+
 from Rolling_Intrinsic_QH import simulate_period
 # -------------------------- Page Description --------------------------
 st.set_page_config(page_title="Simulate February 2025", page_icon="👋")
-
+path_RI
 # -------------------------- Helpers --------------------------
 
 def build_paths(bess: dict) -> dict:
@@ -37,7 +39,7 @@ def ensure_paths(paths: dict):
             f.write("day,profit\n")  # optional header
 
 @st.cache_data # Caches the LOB data so it doesnt have to be loaded each time.
-def load_price_data(path="id_prices.parquet") -> pd.DataFrame:
+def load_price_data(path="../real_data/id_prices.parquet") -> pd.DataFrame:
     return pd.read_parquet(path)
 
 def load_plotting_data(profitpath: str, start=None, end=None) -> pd.DataFrame:
