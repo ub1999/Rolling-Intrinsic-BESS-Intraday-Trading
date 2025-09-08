@@ -513,6 +513,7 @@ def simulate_period(
     threshold_abs_min,
     discount_rate,
     bucket_size,
+    cap,
     c_rate,
     roundtrip_eff,
     max_cycles,
@@ -662,7 +663,7 @@ def simulate_period(
                         run_optimization_quarterhours_repositioning(
                             vwap,
                             execution_time_start,
-                            1,
+                            cap,#1mwh
                             c_rate,
                             roundtrip_eff,
                             allowed_cycles,
@@ -738,6 +739,7 @@ def simulate_period(
 
         # set current day to current_day plus 1 day
         current_day = current_day + pd.Timedelta(days=1) + pd.Timedelta(hours=2)
+    return path
 
 
 def demo_simulation_period(
@@ -747,6 +749,7 @@ def demo_simulation_period(
     threshold_abs_min,
     discount_rate,
     bucket_size,
+    cap,
     c_rate,
     roundtrip_eff,
     max_cycles,
@@ -897,7 +900,7 @@ def demo_simulation_period(
                         run_optimization_quarterhours_repositioning(
                             vwap,
                             execution_time_start,
-                            1,
+                            cap,
                             c_rate,
                             roundtrip_eff,
                             allowed_cycles,
@@ -981,7 +984,7 @@ if __name__=="__main__":
 
     period_start = pd.Timestamp("2025-02-01 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
     period_end = pd.Timestamp("2025-03-01 02:00:00",tz="Europe/Berlin") #pd.Timestamp("2025-03-26 00:00:00", tz="Europe/Berlin")
-    for bucket_size in [1]:
+    for bucket_size in [1,5,10,15]:
         demo_simulation_period(
             period_start,
             period_end,
@@ -989,7 +992,8 @@ if __name__=="__main__":
             threshold_abs_min=0,
             discount_rate=0,
             bucket_size=bucket_size,
-            c_rate=1,
+            cap = 1, #mwh
+            c_rate=1, # c-rate = power/energy 
             roundtrip_eff=0.85,
             max_cycles=(365/12),# only feb analysed
             min_trades=5,

@@ -561,7 +561,7 @@ def demo_forecastsimulation_period(
     min_trades,
     df = load_fake_data(path=fake_path),
     #adjust to include DAM data
-    df_forecast = load_forecast_data(path="2025_SDAC_auction_results.csv")
+    df_forecast = ""
 ):
     log_message = (
         "Running Rolling intrinsic QH with the following parameters:\n"
@@ -803,6 +803,7 @@ def demo_forecastsimulation_period(
 
 if __name__=="__main__":
     real_path = os.path.normpath("real_data/Continuous_Trades-DE-20250325-20250325T235406000Z.csv")
+    dam_path="C:/Users/UnmuBhar/Documents/Intraday Research/POCs/Rolling-Intrinsic-BESS-Intraday-Trading/2025_SDAC_auction_results.csv"
     now = datetime.datetime.now()
 
     period_start = pd.Timestamp("2025-02-01 00:00:00",tz="Europe/Berlin")#pd.Timestamp("2025-03-24 00:00:00", tz="Europe/Berlin")
@@ -821,6 +822,6 @@ if __name__=="__main__":
             min_trades=5,
             #df = load_real_data(real_path)
             df = pd.read_parquet("id_prices.parquet"),
-            df_forecast=load_forecast_data(path="2025_SDAC_auction_results.csv")
+            df_forecast=load_forecast_data(path=dam_path)
         )
         logger.log("INFO", "Simulation Successfully Completed\n"+ "-"*20 + "Simulation Time" + "-"*20 + f" \n {(datetime.datetime.now() - now)}s")
