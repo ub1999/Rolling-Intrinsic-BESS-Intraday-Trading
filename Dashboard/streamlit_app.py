@@ -5,12 +5,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-
 # Make your local package importable (adds location of rolling intrinsic to system path variable)
 path_RI = os.path.relpath(r"Code\Rolling Intrinsic\\")
 sys.path.append(path_RI)
-
 from Rolling_Intrinsic_QH import simulate_period
+
+
+
 # -------------------------- Page Description --------------------------
 st.set_page_config(page_title="Simulate February 2025", page_icon="👋")
 path_RI
